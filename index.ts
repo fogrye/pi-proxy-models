@@ -23,7 +23,11 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+	ExtensionCommandContext,
+} from "@mariozechner/pi-coding-agent";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,14 +115,22 @@ function loadConfig(): Config {
 			};
 			fileBase = parsed.baseUrl?.trim();
 			fileKey = parsed.apiKey?.trim();
-			if (parsed.contextOverrides && typeof parsed.contextOverrides === "object") {
+			if (
+				parsed.contextOverrides &&
+				typeof parsed.contextOverrides === "object"
+			) {
 				fileContextOverrides = parsed.contextOverrides;
 			}
-			if (parsed.maxTokensOverrides && typeof parsed.maxTokensOverrides === "object") {
+			if (
+				parsed.maxTokensOverrides &&
+				typeof parsed.maxTokensOverrides === "object"
+			) {
 				fileMaxTokensOverrides = parsed.maxTokensOverrides;
 			}
 		} catch (err) {
-			console.warn(`[cliproxy] Failed to parse ${configPath}: ${(err as Error).message}`);
+			console.warn(
+				`[cliproxy] Failed to parse ${configPath}: ${(err as Error).message}`,
+			);
 		}
 	}
 
@@ -130,8 +142,14 @@ function loadConfig(): Config {
 
 	// Env-var overrides for quick one-off tweaks:
 	//   CLIPROXY_CONTEXT_OVERRIDES="claude-opus-4-5=1000000,claude-sonnet-4-5=1000000"
-	const contextOverrides = { ...fileContextOverrides, ...parseOverrides(process.env.CLIPROXY_CONTEXT_OVERRIDES) };
-	const maxTokensOverrides = { ...fileMaxTokensOverrides, ...parseOverrides(process.env.CLIPROXY_MAX_TOKENS_OVERRIDES) };
+	const contextOverrides = {
+		...fileContextOverrides,
+		...parseOverrides(process.env.CLIPROXY_CONTEXT_OVERRIDES),
+	};
+	const maxTokensOverrides = {
+		...fileMaxTokensOverrides,
+		...parseOverrides(process.env.CLIPROXY_MAX_TOKENS_OVERRIDES),
+	};
 
 	return { baseUrl, apiKey, contextOverrides, maxTokensOverrides };
 }
@@ -179,7 +197,12 @@ function classifyFamily(m: CLIProxyListModel): Family {
 	const owner = (m.owned_by ?? "").toLowerCase();
 
 	if (owner.includes("anthropic") || id.includes("claude")) return "anthropic";
-	if (owner.includes("google") || owner.includes("gemini") || id.includes("gemini")) return "gemini";
+	if (
+		owner.includes("google") ||
+		owner.includes("gemini") ||
+		id.includes("gemini")
+	)
+		return "gemini";
 	return "openai";
 }
 
@@ -211,17 +234,25 @@ function inferImageInput(id: string): boolean {
 
 function inferLimits(id: string): { contextWindow: number; maxTokens: number } {
 	const l = id.toLowerCase();
-	if (l.includes("claude-opus")) return { contextWindow: 200_000, maxTokens: 32_000 };
-	if (l.includes("claude")) return { contextWindow: 200_000, maxTokens: 64_000 };
-	if (l.includes("gemini-2.5") || l.includes("gemini-3")) return { contextWindow: 1_000_000, maxTokens: 65_536 };
-	if (l.includes("gemini")) return { contextWindow: 1_000_000, maxTokens: 8_192 };
+	if (l.includes("claude-opus"))
+		return { contextWindow: 200_000, maxTokens: 32_000 };
+	if (l.includes("claude"))
+		return { contextWindow: 200_000, maxTokens: 64_000 };
+	if (l.includes("gemini-2.5") || l.includes("gemini-3"))
+		return { contextWindow: 1_000_000, maxTokens: 65_536 };
+	if (l.includes("gemini"))
+		return { contextWindow: 1_000_000, maxTokens: 8_192 };
 	if (l.includes("gpt-5")) return { contextWindow: 400_000, maxTokens: 16_384 };
-	if (l.includes("gpt-4.1")) return { contextWindow: 1_000_000, maxTokens: 32_768 };
-	if (l.includes("gpt-4o")) return { contextWindow: 128_000, maxTokens: 16_384 };
-	if (l.includes("o1") || l.includes("o3") || l.includes("o4")) return { contextWindow: 200_000, maxTokens: 100_000 };
+	if (l.includes("gpt-4.1"))
+		return { contextWindow: 1_000_000, maxTokens: 32_768 };
+	if (l.includes("gpt-4o"))
+		return { contextWindow: 128_000, maxTokens: 16_384 };
+	if (l.includes("o1") || l.includes("o3") || l.includes("o4"))
+		return { contextWindow: 200_000, maxTokens: 100_000 };
 	if (l.includes("kiro")) return { contextWindow: 200_000, maxTokens: 64_000 };
 	if (l.includes("glm")) return { contextWindow: 200_000, maxTokens: 16_384 };
-	if (l.includes("qwen") || l.includes("codex")) return { contextWindow: 128_000, maxTokens: 8_192 };
+	if (l.includes("qwen") || l.includes("codex"))
+		return { contextWindow: 128_000, maxTokens: 8_192 };
 	return { contextWindow: 128_000, maxTokens: 8_192 };
 }
 
@@ -233,13 +264,84 @@ interface PiModelConfig {
 	cost: { input: 0; output: 0; cacheRead: 0; cacheWrite: 0 };
 	contextWindow: number;
 	maxTokens: number;
+	compat?: Record<string, unknown>;
+	thinkingLevelMap?: Record<string, string | null>;
+}
+
+// ---------------------------------------------------------------------------
+// Per-family compat / thinkingLevelMap inference
+//
+// pi's built-in providers carry detailed compat flags that control how
+// reasoning is requested and streamed.  Because CLIProxy translates
+// upstream Responses-API events into Chat Completions, we must tell pi
+// the right flags so reasoning_effort is sent and thinking tokens are
+// recognised.
+// ---------------------------------------------------------------------------
+
+/** Claude 4.6+ requires thinking.type="adaptive" instead of "enabled". */
+function needsAdaptiveThinking(id: string): boolean {
+	const l = id.toLowerCase();
+	return (
+		/claude.*4[.-][6-9]/.test(l) ||
+		/claude.*4[.-]\d{2,}/.test(l) ||
+		/claude.*5[.-]/.test(l)
+	);
+}
+
+function inferCompat(
+	id: string,
+	family: Family,
+): Record<string, unknown> | undefined {
+	const l = id.toLowerCase();
+
+	// Anthropic family — only adaptive-thinking flag needed.
+	if (family === "anthropic") {
+		if (needsAdaptiveThinking(id)) return { forceAdaptiveThinking: true };
+		return undefined;
+	}
+
+	// OpenAI family — CLIProxy's /v1/chat/completions translation means pi
+	// talks openai-completions.  We need supportsReasoningEffort so pi sends
+	// the reasoning_effort param that CLIProxy forwards upstream.
+	if (family === "openai") {
+		if (/\bo[1-4]\b/.test(l) || l.includes("gpt-5") || l.includes("codex")) {
+			return { supportsReasoningEffort: true };
+		}
+		return undefined;
+	}
+
+	// Gemini — no special compat needed; google-generative-ai handles it.
+	return undefined;
+}
+
+function inferThinkingLevelMap(
+	id: string,
+	family: Family,
+): Record<string, string | null> | undefined {
+	const l = id.toLowerCase();
+
+	if (family === "anthropic") {
+		// Opus 4.6 uses "max" for xhigh; 4.7+ uses "xhigh".
+		if (/claude-opus.*4[.-]6/.test(l)) return { xhigh: "max" };
+		if (/claude-opus.*4[.-][7-9]/.test(l)) return { xhigh: "xhigh" };
+		return undefined;
+	}
+
+	if (family === "openai") {
+		// o-series and GPT-5 Codex: thinking can't be turned off.
+		if (/\bo[1-4]\b/.test(l) || l.includes("codex")) return { off: null };
+		return undefined;
+	}
+
+	return undefined;
 }
 
 function toProviderModel(m: CLIProxyListModel, cfg: Config): PiModelConfig {
 	const inferred = inferLimits(m.id);
 	const contextWindow = cfg.contextOverrides[m.id] ?? inferred.contextWindow;
 	const maxTokens = cfg.maxTokensOverrides[m.id] ?? inferred.maxTokens;
-	return {
+	const family = classifyFamily(m);
+	const model: PiModelConfig = {
 		id: m.id,
 		name: m.owned_by ? `${m.id} (${m.owned_by})` : m.id,
 		reasoning: inferReasoning(m.id),
@@ -248,6 +350,11 @@ function toProviderModel(m: CLIProxyListModel, cfg: Config): PiModelConfig {
 		contextWindow,
 		maxTokens,
 	};
+	const compat = inferCompat(m.id, family);
+	if (compat) model.compat = compat;
+	const thinkingLevelMap = inferThinkingLevelMap(m.id, family);
+	if (thinkingLevelMap) model.thinkingLevelMap = thinkingLevelMap;
+	return model;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,7 +377,11 @@ function fallbackModels(): CLIProxyListModel[] {
 // Provider registration
 // ---------------------------------------------------------------------------
 
-function registerFamilies(pi: ExtensionAPI, cfg: Config, rawModels: CLIProxyListModel[]): number {
+function registerFamilies(
+	pi: ExtensionAPI,
+	cfg: Config,
+	rawModels: CLIProxyListModel[],
+): number {
 	// Partition models by family.
 	const buckets: Record<Family, PiModelConfig[]> = {
 		anthropic: [],
@@ -318,7 +429,11 @@ function registerFamilies(pi: ExtensionAPI, cfg: Config, rawModels: CLIProxyList
 // Commands
 // ---------------------------------------------------------------------------
 
-function notify(ctx: ExtensionContext | ExtensionCommandContext, msg: string, kind: "info" | "success" | "error" | "warning" = "info") {
+function notify(
+	ctx: ExtensionContext | ExtensionCommandContext,
+	msg: string,
+	kind: "info" | "success" | "error" | "warning" = "info",
+) {
 	if ((ctx as ExtensionContext).hasUI) {
 		(ctx as ExtensionContext).ui.notify(msg, kind as any);
 	} else {
@@ -347,7 +462,11 @@ function registerCommands(pi: ExtensionAPI, cfg: Config) {
 				lastFetched = models;
 				lastCount = models.length;
 				const auth = cfg.apiKey ? "with API key" : "no API key";
-				notify(ctx, `CLIProxy OK — ${models.length} models @ ${cfg.baseUrl} (${auth})`, "success");
+				notify(
+					ctx,
+					`CLIProxy OK — ${models.length} models @ ${cfg.baseUrl} (${auth})`,
+					"success",
+				);
 				if (!ctx.hasUI) {
 					const grouped = groupByOwner(models);
 					for (const [owner, ids] of Object.entries(grouped)) {
@@ -372,28 +491,44 @@ function registerCommands(pi: ExtensionAPI, cfg: Config) {
 					.map(([owner, ids]) => `${owner}:\n  ${ids.join("\n  ")}`)
 					.join("\n\n");
 				if (ctx.hasUI) {
-					ctx.ui.notify(`${models.length} models (see console for full list)`, "info");
+					ctx.ui.notify(
+						`${models.length} models (see console for full list)`,
+						"info",
+					);
 					console.log(`\nCLIProxy models:\n${lines}\n`);
 				} else {
 					console.log(`CLIProxy models:\n${lines}`);
 				}
 			} catch (err) {
-				notify(ctx, `CLIProxy models failed: ${(err as Error).message}`, "error");
+				notify(
+					ctx,
+					`CLIProxy models failed: ${(err as Error).message}`,
+					"error",
+				);
 			}
 		},
 	});
 
 	pi.registerCommand("cliproxy-refresh", {
-		description: "Re-fetch the CLIProxyAPIPlus model list and re-register providers",
+		description:
+			"Re-fetch the CLIProxyAPIPlus model list and re-register providers",
 		handler: async (_args, ctx) => {
 			try {
 				const models = await fetchModels(cfg);
 				lastFetched = models;
 				lastCount = models.length;
 				const total = registerFamilies(pi, cfg, models);
-				notify(ctx, `CLIProxy: refreshed ${total} models across ${new Set(models.map(classifyFamily)).size} providers`, "success");
+				notify(
+					ctx,
+					`CLIProxy: refreshed ${total} models across ${new Set(models.map(classifyFamily)).size} providers`,
+					"success",
+				);
 			} catch (err) {
-				notify(ctx, `CLIProxy refresh failed: ${(err as Error).message}`, "error");
+				notify(
+					ctx,
+					`CLIProxy refresh failed: ${(err as Error).message}`,
+					"error",
+				);
 			}
 		},
 	});
