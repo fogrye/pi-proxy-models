@@ -379,7 +379,190 @@ function fallbackModels(): CLIProxyListModel[] {
 // Provider registration
 // ---------------------------------------------------------------------------
 
-function registerFamilies(
+
+// Optional import for thinking tag parser
+let piAi: any;
+try {
+	piAi = await import("@earendil-works/pi-ai");
+} catch {
+	try {
+		piAi = await import("@mariozechner/pi-ai");
+	} catch {
+		// Ignore if pi-ai is not available
+	}
+}
+
+class ThinkingTagParser {
+	tagNames: string[];
+	emit: (event: any) => void;
+	buffer: string;
+	inTag: boolean;
+	currentTag: string;
+
+	constructor(tagNames: string[], emit: (event: any) => void) {
+		this.tagNames = tagNames;
+		this.emit = emit;
+		this.buffer = "";
+		this.inTag = false;
+		this.currentTag = "";
+	}
+
+	process(text: string) {
+		this.buffer += text;
+		while (this.buffer.length > 0) {
+			if (!this.inTag) {
+				const startIdx = this.buffer.indexOf("<");
+				if (startIdx === -1) {
+					this.emit({ type: "text", content: this.buffer });
+					this.buffer = "";
+					return;
+				}
+				if (startIdx > 0) {
+					this.emit({ type: "text", content: this.buffer.substring(0, startIdx) });
+					this.buffer = this.buffer.substring(startIdx);
+				}
+				let matchedTag = null;
+				let partialMatch = false;
+				for (const tag of this.tagNames) {
+					const fullTag = `<${tag}>`;
+					if (this.buffer.startsWith(fullTag)) {
+						matchedTag = tag;
+						break;
+					}
+					if (fullTag.startsWith(this.buffer)) {
+						partialMatch = true;
+					}
+				}
+				if (matchedTag) {
+					this.inTag = true;
+					this.currentTag = matchedTag;
+					this.emit({ type: "think_start" });
+					this.buffer = this.buffer.substring(matchedTag.length + 2);
+					continue;
+				}
+				if (partialMatch) {
+					return;
+				}
+				this.emit({ type: "text", content: "<" });
+				this.buffer = this.buffer.substring(1);
+			} else {
+				const endTag = `</${this.currentTag}>`;
+				const endIdx = this.buffer.indexOf("</");
+				if (endIdx === -1) {
+					this.emit({ type: "think", content: this.buffer });
+					this.buffer = "";
+					return;
+				}
+				if (endIdx > 0) {
+					this.emit({ type: "think", content: this.buffer.substring(0, endIdx) });
+					this.buffer = this.buffer.substring(endIdx);
+				}
+				if (this.buffer.startsWith(endTag)) {
+					this.inTag = false;
+					this.emit({ type: "think_end" });
+					this.buffer = this.buffer.substring(endTag.length);
+					if (this.buffer.startsWith("\n")) this.buffer = this.buffer.substring(1);
+					continue;
+				}
+				if (endTag.startsWith(this.buffer)) {
+					return;
+				}
+				this.emit({ type: "think", content: "</" });
+				this.buffer = this.buffer.substring(2);
+			}
+		}
+	}
+}
+
+function wrapStreamWithThinkingParser(piAi: any) {
+	return (model: any, context: any, options: any) => {
+		const originalStream = piAi.streamSimple(model, context, options);
+		const newStream = piAi.createAssistantMessageEventStream();
+		
+		(async () => {
+			try {
+				let outputMsg: any = null;
+				let textBlockIndex = -1;
+				let thinkBlockIndex = -1;
+
+				const parser = new ThinkingTagParser(["think", "thinking"], (e) => {
+					if (!outputMsg) return;
+					
+					if (e.type === "text") {
+						if (textBlockIndex === -1) {
+							outputMsg.content.push({ type: "text", text: "" });
+							textBlockIndex = outputMsg.content.length - 1;
+							newStream.push({ type: "text_start", contentIndex: textBlockIndex, partial: outputMsg });
+						}
+						outputMsg.content[textBlockIndex].text += e.content;
+						newStream.push({ type: "text_delta", contentIndex: textBlockIndex, delta: e.content, partial: outputMsg });
+					} else if (e.type === "think_start") {
+						outputMsg.content.push({ type: "thinking", thinking: "", thinkingSignature: "" });
+						thinkBlockIndex = outputMsg.content.length - 1;
+						newStream.push({ type: "thinking_start", contentIndex: thinkBlockIndex, partial: outputMsg });
+						textBlockIndex = -1; // Force new text block after thinking
+					} else if (e.type === "think") {
+						if (thinkBlockIndex !== -1) {
+							outputMsg.content[thinkBlockIndex].thinking += e.content;
+							newStream.push({ type: "thinking_delta", contentIndex: thinkBlockIndex, delta: e.content, partial: outputMsg });
+						}
+					} else if (e.type === "think_end") {
+						if (thinkBlockIndex !== -1) {
+							newStream.push({ type: "thinking_end", contentIndex: thinkBlockIndex, content: outputMsg.content[thinkBlockIndex].thinking, partial: outputMsg });
+							thinkBlockIndex = -1;
+						}
+					}
+				});
+
+				for await (const event of originalStream) {
+					if (event.type === "start") {
+						outputMsg = JSON.parse(JSON.stringify(event.partial));
+						outputMsg.content = []; // We will rebuild content
+						newStream.push({ type: "start", partial: outputMsg });
+					} else if (event.type === "text_start" || event.type === "text_end") {
+						// Ignore, parser handles block boundaries
+					} else if (event.type === "text_delta") {
+						parser.process(event.delta);
+					} else if (event.type === "done") {
+						newStream.push({ type: "done", reason: event.reason, message: outputMsg });
+					} else if (event.type === "error") {
+						newStream.push({ type: "error", reason: event.reason, error: outputMsg });
+					} else if (event.type.startsWith("toolcall")) {
+						// Pass through toolcalls
+						if (event.type === "toolcall_start") {
+							outputMsg.content.push(event.partial.content[event.contentIndex]);
+							newStream.push({ type: "toolcall_start", contentIndex: outputMsg.content.length - 1, partial: outputMsg });
+						} else if (event.type === "toolcall_delta") {
+							const idx = outputMsg.content.length - 1;
+							outputMsg.content[idx].partialJson += event.delta;
+							newStream.push({ type: "toolcall_delta", contentIndex: idx, delta: event.delta, partial: outputMsg });
+						} else if (event.type === "toolcall_end") {
+							const idx = outputMsg.content.length - 1;
+							outputMsg.content[idx] = event.toolCall;
+							newStream.push({ type: "toolcall_end", contentIndex: idx, toolCall: event.toolCall, partial: outputMsg });
+							textBlockIndex = -1; // Reset text block index after toolcall
+						}
+					} else {
+						// Pass through native thinking if the model uses the API reasoning field natively
+						newStream.push(event as any);
+						if (event.partial) {
+							outputMsg = event.partial;
+						}
+					}
+				}
+				newStream.end();
+			} catch (err) {
+				newStream.push({ type: "error", reason: "error", error: { errorMessage: String(err) } as any });
+				newStream.end();
+			}
+		})();
+		
+		return newStream;
+	};
+}
+
+
+async function registerFamilies(
 	pi: ExtensionAPI,
 	cfg: Config,
 	rawModels: CLIProxyListModel[],
@@ -415,12 +598,18 @@ function registerFamilies(
 			continue;
 		}
 
-		pi.registerProvider(spec.providerName, {
+				const providerConfig: any = {
 			baseUrl: cfg.baseUrl + spec.baseSuffix,
 			apiKey: effectiveKey,
 			api: spec.api,
 			models,
-		});
+		};
+		
+		if (piAi && piAi.streamSimple && piAi.createAssistantMessageEventStream) {
+			providerConfig.streamSimple = wrapStreamWithThinkingParser(piAi);
+		}
+		
+		pi.registerProvider(spec.providerName, providerConfig);
 		total += models.length;
 	}
 
@@ -519,7 +708,7 @@ function registerCommands(pi: ExtensionAPI, cfg: Config) {
 				const models = await fetchModels(cfg);
 				lastFetched = models;
 				lastCount = models.length;
-				const total = registerFamilies(pi, cfg, models);
+				const total = await registerFamilies(pi, cfg, models);
 				notify(
 					ctx,
 					`CLIProxy: refreshed ${total} models across ${new Set(models.map(classifyFamily)).size} providers`,
