@@ -322,14 +322,16 @@ function inferThinkingLevelMap(
 
 	if (family === "anthropic") {
 		// Claude 4.6 and older use "max" for xhigh; 4.7+ uses "xhigh".
-		if (/claude.*4[.-][0-6]/.test(l) || /claude.*[1-3][.-]/.test(l)) return { xhigh: "max" };
+		if (/claude.*4[.-][0-6]/.test(l) || /claude.*[1-3][.-]/.test(l))
+			return { xhigh: "max" };
 		if (/claude.*4[.-][7-9]/.test(l)) return { xhigh: "xhigh" };
 		return undefined;
 	}
 
 	if (family === "openai") {
 		// o-series and GPT-5 (up to 5.3) + Codex: thinking can't be turned off.
-		if (/\bo[1-4]\b/.test(l) || /gpt-5[.-][0-3]/.test(l) || l.includes("codex")) return { off: null };
+		if (/\bo[1-4]\b/.test(l) || /gpt-5[.-][0-3]/.test(l) || l.includes("codex"))
+			return { off: null };
 		return undefined;
 	}
 
