@@ -294,9 +294,10 @@ function inferCompat(
 ): Record<string, unknown> | undefined {
 	const l = id.toLowerCase();
 
-	// Anthropic family — Claude 4.6+ requires adaptive thinking.
+	// Anthropic family — CLIProxy (as of 1.25) strips thinking blocks from
+	// the response when adaptive thinking is used.  Leave forceAdaptiveThinking
+	// off so pi uses legacy thinking.type=enabled + budget_tokens which works.
 	if (family === "anthropic") {
-		if (needsAdaptiveThinking(id)) return { forceAdaptiveThinking: true };
 		return undefined;
 	}
 
