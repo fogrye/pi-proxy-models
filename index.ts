@@ -379,11 +379,11 @@ function fallbackModels(): CLIProxyListModel[] {
 // Provider registration
 // ---------------------------------------------------------------------------
 
-async function registerFamilies(
+function registerFamilies(
 	pi: ExtensionAPI,
 	cfg: Config,
 	rawModels: CLIProxyListModel[],
-): Promise<number> {
+): number {
 	// Partition models by family.
 	const buckets: Record<Family, PiModelConfig[]> = {
 		anthropic: [],
@@ -399,23 +399,6 @@ async function registerFamilies(
 	// natively using this value. CLIProxyAPIPlus accepts any value when its
 	// `api-keys:` is empty, so a placeholder works for unauthenticated setups.
 	const effectiveKey = cfg.apiKey || PLACEHOLDER_KEY;
-
-	// Capture the built-in anthropic stream function BEFORE registerProvider
-	// replaces it, so our wrapper can delegate without infinite recursion.
-	let builtinAnthropicStream: any;
-	try {
-		const piAi = await import("@earendil-works/pi-ai");
-		const provider = piAi.getApiProvider?.("anthropic-messages");
-		builtinAnthropicStream = provider?.streamSimple;
-	} catch {
-		try {
-			const piAi = await import("@mariozechner/pi-ai");
-			const provider = piAi.getApiProvider?.("anthropic-messages");
-			builtinAnthropicStream = provider?.streamSimple;
-		} catch {
-			// pi-ai not available
-		}
-	}
 
 	let total = 0;
 	for (const family of Object.keys(buckets) as Family[]) {
@@ -438,26 +421,6 @@ async function registerFamilies(
 			api: spec.api,
 			models,
 		};
-
-		// For Anthropic models routed through CLIProxy, strip thinking.display
-		// from the request payload. CLIProxy doesn't handle it and its presence
-		// causes Anthropic to return thinking_tokens=0 on adaptive thinking.
-		// Uses pi's onPayload hook which buildBaseOptions passes through to
-		// streamAnthropic.
-		if (family === "anthropic" && builtinAnthropicStream) {
-			providerConfig.streamSimple = (model: any, context: any, options: any) => {
-				const patched = {
-					...options,
-					onPayload: (params: any, m: any) => {
-						if (params.thinking && typeof params.thinking === "object") {
-							delete params.thinking.display;
-						}
-						return options?.onPayload?.(params, m) ?? params;
-					},
-				};
-				return builtinAnthropicStream(model, context, patched);
-			};
-		}
 
 		pi.registerProvider(spec.providerName, providerConfig);
 		total += models.length;
@@ -558,7 +521,7 @@ function registerCommands(pi: ExtensionAPI, cfg: Config) {
 				const models = await fetchModels(cfg);
 				lastFetched = models;
 				lastCount = models.length;
-				const total = await registerFamilies(pi, cfg, models);
+				const total = registerFamilies(pi, cfg, models);
 				notify(
 					ctx,
 					`CLIProxy: refreshed ${total} models across ${new Set(models.map(classifyFamily)).size} providers`,
@@ -598,7 +561,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 	lastFetched = models;
 	lastCount = models.length;
 
-	await registerFamilies(pi, cfg, models);
+	registerFamilies(pi, cfg, models);
 	registerCommands(pi, cfg);
 
 	pi.on("session_start", async (_event, ctx) => {
