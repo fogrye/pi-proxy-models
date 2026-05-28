@@ -290,10 +290,10 @@ function inferThinkingLevelMap(
 	const l = id.toLowerCase();
 
 	if (family === "anthropic") {
-		// Claude 4.6 and older use "max" for xhigh; 4.7+ uses "xhigh".
-		if (/claude.*4[.-][0-6]/.test(l) || /claude.*[1-3][.-]/.test(l))
+		// Claude 4.5 and older use "max" for xhigh; 4.6+ uses "xhigh".
+		if (/claude.*4[.-][0-5]/.test(l) || /claude.*[1-3][.-]/.test(l))
 			return { xhigh: "max" };
-		if (/claude.*4[.-][7-9]/.test(l)) return { xhigh: "xhigh" };
+		if (/claude.*4[.-][6-9]/.test(l)) return { xhigh: "xhigh" };
 		return undefined;
 	}
 
