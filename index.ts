@@ -233,6 +233,76 @@ interface PiModelConfig {
 	cost: { input: 0; output: 0; cacheRead: 0; cacheWrite: 0 };
 	contextWindow: number;
 	maxTokens: number;
+	compat?: Record<string, unknown>;
+	thinkingLevelMap?: Record<string, string | null>;
+}
+
+// ---------------------------------------------------------------------------
+// Per-family compat / thinkingLevelMap inference
+//
+// pi's built-in providers carry detailed compat flags that control how
+// reasoning is requested and streamed.  Because CLIProxy translates
+// upstream Responses-API events into Chat Completions, we must tell pi
+// the right flags so reasoning_effort is sent and thinking tokens are
+// recognised.
+// ---------------------------------------------------------------------------
+
+/** Claude 4.6+ requires thinking.type="adaptive" instead of "enabled". */
+function needsAdaptiveThinking(id: string): boolean {
+	const l = id.toLowerCase();
+	return (
+		/claude.*4[.-][6-9]/.test(l) ||
+		/claude.*4[.-]\d{2,}/.test(l) ||
+		/claude.*5[.-]/.test(l)
+	);
+}
+
+function inferCompat(
+	id: string,
+	family: Family,
+): Record<string, unknown> | undefined {
+	const l = id.toLowerCase();
+
+	// Anthropic family — only adaptive-thinking flag needed.
+	if (family === "anthropic") {
+		if (needsAdaptiveThinking(id)) return { forceAdaptiveThinking: true };
+		return undefined;
+	}
+
+	// OpenAI family — CLIProxy's /v1/chat/completions translation means pi
+	// talks openai-completions.  We need supportsReasoningEffort so pi sends
+	// the reasoning_effort param that CLIProxy forwards upstream.
+	if (family === "openai") {
+		if (/\bo[1-4]\b/.test(l) || l.includes("gpt-5") || l.includes("codex")) {
+			return { supportsReasoningEffort: true };
+		}
+		return undefined;
+	}
+
+	// Gemini — no special compat needed; google-generative-ai handles it.
+	return undefined;
+}
+
+function inferThinkingLevelMap(
+	id: string,
+	family: Family,
+): Record<string, string | null> | undefined {
+	const l = id.toLowerCase();
+
+	if (family === "anthropic") {
+		// Claude 4.6 and older use "max" for xhigh; 4.7+ uses "xhigh".
+		if (/claude.*4[.-][0-6]/.test(l) || /claude.*[1-3][.-]/.test(l)) return { xhigh: "max" };
+		if (/claude.*4[.-][7-9]/.test(l)) return { xhigh: "xhigh" };
+		return undefined;
+	}
+
+	if (family === "openai") {
+		// o-series and GPT-5 (up to 5.3) + Codex: thinking can't be turned off.
+		if (/\bo[1-4]\b/.test(l) || /gpt-5[.-][0-3]/.test(l) || l.includes("codex")) return { off: null };
+		return undefined;
+	}
+
+	return undefined;
 }
 
 function toProviderModel(m: CLIProxyListModel, cfg: Config): PiModelConfig {
