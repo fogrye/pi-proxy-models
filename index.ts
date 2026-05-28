@@ -234,26 +234,204 @@ function inferImageInput(id: string): boolean {
 
 function inferLimits(id: string): { contextWindow: number; maxTokens: number } {
 	const l = id.toLowerCase();
-	if (l.includes("claude-opus"))
+
+	// Anthropic — Opus 4.5 and earlier have 200k ctx; 4.6+ have 1M ctx and 128k output
+	if (/claude.*opus.*4[.-][0-5]/.test(l))
 		return { contextWindow: 200_000, maxTokens: 32_000 };
+	if (/claude.*opus/.test(l))
+		return { contextWindow: 1_000_000, maxTokens: 128_000 };
+	if (/claude.*sonnet.*4[.-][0-4]/.test(l))
+		return { contextWindow: 200_000, maxTokens: 64_000 };
+	if (/claude.*sonnet/.test(l))
+		return { contextWindow: 1_000_000, maxTokens: 64_000 };
 	if (l.includes("claude"))
 		return { contextWindow: 200_000, maxTokens: 64_000 };
-	if (l.includes("gemini-2.5") || l.includes("gemini-3"))
-		return { contextWindow: 1_000_000, maxTokens: 65_536 };
+
+	// Google Gemini
+	if (/gemini-3\.5/.test(l))
+		return { contextWindow: 1_048_576, maxTokens: 65_535 };
+	if (/gemini-3\.1.*pro/.test(l))
+		return { contextWindow: 1_048_576, maxTokens: 65_536 };
+	if (/gemini-3\.1.*flash/.test(l))
+		return { contextWindow: 1_048_576, maxTokens: 65_536 };
+	if (/gemini-3.*pro/.test(l))
+		return { contextWindow: 1_048_576, maxTokens: 65_535 };
+	if (/gemini-3.*flash/.test(l))
+		return { contextWindow: 1_048_576, maxTokens: 65_535 };
+	if (l.includes("gemini-2.5"))
+		return { contextWindow: 1_048_576, maxTokens: 65_535 };
+	if (l.includes("gemini-2.0-flash"))
+		return { contextWindow: 1_048_576, maxTokens: 8_192 };
 	if (l.includes("gemini"))
-		return { contextWindow: 1_000_000, maxTokens: 8_192 };
-	if (l.includes("gpt-5")) return { contextWindow: 400_000, maxTokens: 16_384 };
+		return { contextWindow: 1_048_576, maxTokens: 8_192 };
+
+	// OpenAI — GPT-5 family
+	if (/gpt-5\.5/.test(l))
+		return { contextWindow: 1_050_000, maxTokens: 128_000 };
+	if (/gpt-5\.4/.test(l))
+		return { contextWindow: 1_050_000, maxTokens: 128_000 };
+	if (/gpt-5\.2.*pro/.test(l))
+		return { contextWindow: 272_000, maxTokens: 128_000 };
+	if (/gpt-5\.2/.test(l)) return { contextWindow: 272_000, maxTokens: 128_000 };
+	if (l.includes("gpt-5-nano") || l.includes("gpt-5-mini"))
+		return { contextWindow: 272_000, maxTokens: 128_000 };
+	if (l.includes("gpt-5"))
+		return { contextWindow: 272_000, maxTokens: 128_000 };
+
+	// OpenAI — GPT-4
 	if (l.includes("gpt-4.1"))
-		return { contextWindow: 1_000_000, maxTokens: 32_768 };
+		return { contextWindow: 1_047_576, maxTokens: 32_768 };
 	if (l.includes("gpt-4o"))
 		return { contextWindow: 128_000, maxTokens: 16_384 };
-	if (l.includes("o1") || l.includes("o3") || l.includes("o4"))
+
+	// OpenAI — o-series
+	if (/\bo[134]/.test(l)) return { contextWindow: 200_000, maxTokens: 100_000 };
+
+	// OpenAI — Codex
+	if (l.includes("codex-mini"))
 		return { contextWindow: 200_000, maxTokens: 100_000 };
+	if (l.includes("codex"))
+		return { contextWindow: 272_000, maxTokens: 128_000 };
+
+	// Others
 	if (l.includes("kiro")) return { contextWindow: 200_000, maxTokens: 64_000 };
 	if (l.includes("glm")) return { contextWindow: 200_000, maxTokens: 16_384 };
-	if (l.includes("qwen") || l.includes("codex"))
-		return { contextWindow: 128_000, maxTokens: 8_192 };
+	if (l.includes("qwen")) return { contextWindow: 128_000, maxTokens: 8_192 };
+
 	return { contextWindow: 128_000, maxTokens: 8_192 };
+}
+
+// Cost per million tokens in USD — matches pi's built-in model definitions.
+// Source: LiteLLM model_prices_and_context_window.json (Anthropic direct API prices).
+function inferCost(id: string): {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+} {
+	const l = id.toLowerCase();
+
+	// ── Anthropic ──────────────────────────────────────────────────────
+	// Opus 4.0 / 4.1 (and dated variants like 4-20250514, 4-1-20250805)
+	if (/claude.*opus.*4[.-][01]/.test(l))
+		return { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 };
+	// Opus 4.5 – 4.8+  (same $5/$25 tier)
+	if (/claude.*opus/.test(l))
+		return { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 };
+	// Sonnet 4.x (all variants share $3/$15)
+	if (/claude.*sonnet/.test(l))
+		return { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
+	// Haiku 4.5+
+	if (/claude.*haiku.*4/.test(l))
+		return { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 };
+	// Haiku 3.5 and older
+	if (/claude.*haiku/.test(l))
+		return { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 };
+	// Claude 3 Opus
+	if (/claude.*3.*opus/.test(l))
+		return { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 };
+	// Claude 3/3.5/3.7 Sonnet
+	if (/claude.*3/.test(l))
+		return { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
+
+	// ── OpenAI o-series ────────────────────────────────────────────────
+	if (l.includes("o3-pro"))
+		return { input: 20, output: 80, cacheRead: 0, cacheWrite: 0 };
+	if (/\bo3-mini\b/.test(l))
+		return { input: 1.1, output: 4.4, cacheRead: 0.55, cacheWrite: 0 };
+	if (/\bo3\b/.test(l))
+		return { input: 2, output: 8, cacheRead: 0.5, cacheWrite: 0 };
+	if (/\bo4-mini\b/.test(l))
+		return { input: 1.1, output: 4.4, cacheRead: 0.275, cacheWrite: 0 };
+	if (/\bo1-pro\b/.test(l))
+		return { input: 150, output: 600, cacheRead: 0, cacheWrite: 0 };
+	if (/\bo1\b/.test(l))
+		return { input: 15, output: 60, cacheRead: 7.5, cacheWrite: 0 };
+
+	// ── OpenAI GPT-5 family ────────────────────────────────────────────
+	if (/gpt-5\.5-pro/.test(l))
+		return { input: 30, output: 180, cacheRead: 0, cacheWrite: 0 };
+	if (/gpt-5\.5/.test(l))
+		return { input: 5, output: 30, cacheRead: 0, cacheWrite: 0 };
+	if (/gpt-5\.4-pro/.test(l))
+		return { input: 30, output: 180, cacheRead: 0, cacheWrite: 0 };
+	if (/gpt-5\.4-nano/.test(l))
+		return { input: 0.2, output: 1.25, cacheRead: 0, cacheWrite: 0 };
+	if (/gpt-5\.4-mini/.test(l))
+		return { input: 0.75, output: 4.5, cacheRead: 0, cacheWrite: 0 };
+	if (/gpt-5\.4/.test(l))
+		return { input: 2.5, output: 15, cacheRead: 0, cacheWrite: 0 };
+	if (/gpt-5\.3/.test(l))
+		return { input: 1.75, output: 14, cacheRead: 0, cacheWrite: 0 };
+	if (/gpt-5\.2-pro/.test(l))
+		return { input: 21, output: 168, cacheRead: 0, cacheWrite: 0 };
+	if (/gpt-5\.2/.test(l))
+		return { input: 1.75, output: 14, cacheRead: 0, cacheWrite: 0 };
+	if (l.includes("gpt-5-pro"))
+		return { input: 15, output: 120, cacheRead: 0, cacheWrite: 0 };
+	if (l.includes("gpt-5-nano"))
+		return { input: 0.05, output: 0.4, cacheRead: 0, cacheWrite: 0 };
+	if (l.includes("gpt-5-mini"))
+		return { input: 0.25, output: 2, cacheRead: 0, cacheWrite: 0 };
+	if (l.includes("gpt-5"))
+		return { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 };
+
+	// ── OpenAI GPT-4 family ────────────────────────────────────────────
+	if (l.includes("gpt-4.1-nano"))
+		return { input: 0.1, output: 0.4, cacheRead: 0.025, cacheWrite: 0 };
+	if (l.includes("gpt-4.1-mini"))
+		return { input: 0.4, output: 1.6, cacheRead: 0.1, cacheWrite: 0 };
+	if (l.includes("gpt-4.1"))
+		return { input: 2, output: 8, cacheRead: 0.5, cacheWrite: 0 };
+	if (l.includes("gpt-4o-mini"))
+		return { input: 0.15, output: 0.6, cacheRead: 0.075, cacheWrite: 0 };
+	if (l.includes("gpt-4o"))
+		return { input: 2.5, output: 10, cacheRead: 1.25, cacheWrite: 0 };
+	if (l.includes("gpt-4-turbo"))
+		return { input: 10, output: 30, cacheRead: 0, cacheWrite: 0 };
+	if (l.includes("gpt-4"))
+		return { input: 30, output: 60, cacheRead: 0, cacheWrite: 0 };
+
+	// ── OpenAI Codex ───────────────────────────────────────────────────
+	if (l.includes("codex-mini"))
+		return { input: 1.5, output: 6, cacheRead: 0, cacheWrite: 0 };
+	if (l.includes("codex"))
+		return { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 };
+
+	// ── Google Gemini ──────────────────────────────────────────────────
+	if (/gemini-3\.5-flash/.test(l))
+		return { input: 1.5, output: 9, cacheRead: 0.15, cacheWrite: 0 };
+	if (/gemini-3\.1.*pro/.test(l))
+		return { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 0 };
+	if (/gemini-3\.1.*flash-lite/.test(l))
+		return { input: 0.25, output: 1.5, cacheRead: 0.025, cacheWrite: 0 };
+	if (/gemini-3\.1.*flash/.test(l))
+		return { input: 0.25, output: 1.5, cacheRead: 0.025, cacheWrite: 0 };
+	if (/gemini-3.*pro/.test(l))
+		return { input: 2, output: 12, cacheRead: 0.2, cacheWrite: 0 };
+	if (/gemini-3.*flash/.test(l))
+		return { input: 0.5, output: 3, cacheRead: 0.05, cacheWrite: 0 };
+	if (l.includes("gemini-2.5-pro"))
+		return { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 0 };
+	if (l.includes("gemini-2.5-flash-lite"))
+		return { input: 0.1, output: 0.4, cacheRead: 0.01, cacheWrite: 0 };
+	if (l.includes("gemini-2.5-flash"))
+		return { input: 0.3, output: 2.5, cacheRead: 0.03, cacheWrite: 0 };
+	if (l.includes("gemini-2.0-flash-lite"))
+		return { input: 0.075, output: 0.3, cacheRead: 0.019, cacheWrite: 0 };
+	if (l.includes("gemini-2.0-flash"))
+		return { input: 0.1, output: 0.4, cacheRead: 0.025, cacheWrite: 0 };
+	if (l.includes("gemini"))
+		return { input: 0.1, output: 0.4, cacheRead: 0.025, cacheWrite: 0 };
+
+	// ── Others ─────────────────────────────────────────────────────────
+	if (l.includes("glm"))
+		return { input: 2.25, output: 2.75, cacheRead: 0, cacheWrite: 0 };
+	if (l.includes("qwen"))
+		return { input: 0.22, output: 0.88, cacheRead: 0, cacheWrite: 0 };
+
+	// Fallback — mid-range estimate
+	return { input: 1, output: 4, cacheRead: 0.1, cacheWrite: 0 };
 }
 
 interface PiModelConfig {
@@ -261,7 +439,12 @@ interface PiModelConfig {
 	name: string;
 	reasoning: boolean;
 	input: ("text" | "image")[];
-	cost: { input: 0; output: 0; cacheRead: 0; cacheWrite: 0 };
+	cost: {
+		input: number;
+		output: number;
+		cacheRead: number;
+		cacheWrite: number;
+	};
 	contextWindow: number;
 	maxTokens: number;
 	compat?: Record<string, unknown>;
@@ -345,12 +528,13 @@ function toProviderModel(m: CLIProxyListModel, cfg: Config): PiModelConfig {
 	const maxTokens = cfg.maxTokensOverrides[m.id] ?? inferred.maxTokens;
 	const compat = inferCompat(m.id, family);
 	const thinkingLevelMap = inferThinkingLevelMap(m.id, family);
+	const cost = inferCost(m.id);
 	const model: PiModelConfig = {
 		id: m.id,
 		name: m.owned_by ? `${m.id} (${m.owned_by})` : m.id,
 		reasoning: inferReasoning(m.id),
 		input: inferImageInput(m.id) ? ["text", "image"] : ["text"],
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		cost,
 		contextWindow,
 		maxTokens,
 	};
