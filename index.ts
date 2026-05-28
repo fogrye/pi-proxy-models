@@ -294,10 +294,11 @@ function inferCompat(
 ): Record<string, unknown> | undefined {
 	const l = id.toLowerCase();
 
-	// Anthropic family — Claude 4.6+ requires adaptive thinking
-	// (thinking.type=adaptive + output_config.effort).
+	// Anthropic family — do NOT set forceAdaptiveThinking; CLIProxy handles
+	// the thinking format conversion itself. Setting it here causes pi to
+	// send adaptive format which CLIProxy then double-processes, dropping
+	// thinking blocks from the response stream.
 	if (family === "anthropic") {
-		if (needsAdaptiveThinking(id)) return { forceAdaptiveThinking: true };
 		return undefined;
 	}
 
