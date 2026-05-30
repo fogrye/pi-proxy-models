@@ -504,18 +504,25 @@ function inferThinkingLevelMap(
 	const l = id.toLowerCase();
 
 	if (family === "anthropic") {
+		// CLIProxy only accepts low/medium/high/xhigh, so hide pi's minimal level.
 		// Claude 4.5 and older use "max" for xhigh; 4.6+ uses "xhigh".
 		if (/claude.*4[.-][0-5]/.test(l) || /claude.*[1-3][.-]/.test(l))
-			return { xhigh: "max" };
-		if (/claude.*4[.-][6-9]/.test(l)) return { xhigh: "xhigh" };
-		return undefined;
+			return { minimal: null, xhigh: "max" };
+		if (/claude.*4[.-][6-9]/.test(l)) return { minimal: null, xhigh: "xhigh" };
+		return { minimal: null };
 	}
 
 	if (family === "openai") {
+		// CLIProxy only accepts low/medium/high/xhigh, so hide pi's minimal level.
 		// o-series and GPT-5 (up to 5.3) + Codex: thinking can't be turned off.
 		if (/\bo[1-4]\b/.test(l) || /gpt-5[.-][0-3]/.test(l) || l.includes("codex"))
-			return { off: null };
-		return undefined;
+			return { minimal: null, off: null };
+		return { minimal: null };
+	}
+
+	if (family === "gemini") {
+		// CLIProxy only accepts low/medium/high/xhigh, so hide pi's minimal level.
+		return { minimal: null };
 	}
 
 	return undefined;
