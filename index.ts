@@ -266,8 +266,11 @@ function inferLimits(id: string): { contextWindow: number; maxTokens: number } {
 		return { contextWindow: 1_048_576, maxTokens: 8_192 };
 
 	// OpenAI — GPT-5 family
+	// gpt-5.5 is genuinely a 272k-context model on the Codex backend (not 1M).
+	// Keep maxTokens low enough that input + reserved output stays under 272k,
+	// otherwise the backend returns 400 context_length_exceeded at high input.
 	if (/gpt-5\.5/.test(l))
-		return { contextWindow: 1_050_000, maxTokens: 128_000 };
+		return { contextWindow: 272_000, maxTokens: 64_000 };
 	if (/gpt-5\.4/.test(l))
 		return { contextWindow: 1_050_000, maxTokens: 128_000 };
 	if (/gpt-5\.2.*pro/.test(l))
