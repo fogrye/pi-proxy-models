@@ -266,11 +266,12 @@ function inferLimits(id: string): { contextWindow: number; maxTokens: number } {
 		return { contextWindow: 1_048_576, maxTokens: 8_192 };
 
 	// OpenAI — GPT-5 family
+	if (/gpt-5\.6/.test(l))
+		return { contextWindow: 1_050_000, maxTokens: 128_000 };
 	// gpt-5.5 is genuinely a 272k-context model on the Codex backend (not 1M).
 	// Keep maxTokens low enough that input + reserved output stays under 272k,
 	// otherwise the backend returns 400 context_length_exceeded at high input.
-	if (/gpt-5\.5/.test(l))
-		return { contextWindow: 272_000, maxTokens: 64_000 };
+	if (/gpt-5\.5/.test(l)) return { contextWindow: 272_000, maxTokens: 64_000 };
 	if (/gpt-5\.4/.test(l))
 		return { contextWindow: 1_050_000, maxTokens: 128_000 };
 	if (/gpt-5\.2.*pro/.test(l))
@@ -315,6 +316,9 @@ function inferCost(id: string): {
 	const l = id.toLowerCase();
 
 	// ── Anthropic ──────────────────────────────────────────────────────
+	// Fable 5
+	if (/claude.*fable.*5/.test(l))
+		return { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 };
 	// Opus 4.0 / 4.1 (and dated variants like 4-20250514, 4-1-20250805)
 	if (/claude.*opus.*4[.-][01]/.test(l))
 		return { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 };
@@ -352,6 +356,14 @@ function inferCost(id: string): {
 		return { input: 15, output: 60, cacheRead: 7.5, cacheWrite: 0 };
 
 	// ── OpenAI GPT-5 family ────────────────────────────────────────────
+	if (/gpt-5\.6.*sol/.test(l))
+		return { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 };
+	if (/gpt-5\.6.*terra/.test(l))
+		return { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0 };
+	if (/gpt-5\.6.*luna/.test(l))
+		return { input: 1, output: 6, cacheRead: 0.1, cacheWrite: 0 };
+	if (/gpt-5\.6/.test(l))
+		return { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0 };
 	if (/gpt-5\.5-pro/.test(l))
 		return { input: 30, output: 180, cacheRead: 0, cacheWrite: 0 };
 	if (/gpt-5\.5/.test(l))
@@ -470,7 +482,7 @@ function needsAdaptiveThinking(id: string): boolean {
 	return (
 		/claude.*4[.-][6-9]/.test(l) ||
 		/claude.*4[.-]\d{2,}/.test(l) ||
-		/claude.*5[.-]/.test(l)
+		/claude.*5(?:[.-]|$)/.test(l)
 	);
 }
 
@@ -508,10 +520,11 @@ function inferThinkingLevelMap(
 
 	if (family === "anthropic") {
 		// CLIProxy only accepts low/medium/high/xhigh, so hide pi's minimal level.
-		// Claude 4.5 and older use "max" for xhigh; 4.6+ uses "xhigh".
+		// Claude 4.5 and older use "max" for xhigh; 4.6+ and 5.x use "xhigh".
 		if (/claude.*4[.-][0-5]/.test(l) || /claude.*[1-3][.-]/.test(l))
 			return { minimal: null, xhigh: "max" };
-		if (/claude.*4[.-][6-9]/.test(l)) return { minimal: null, xhigh: "xhigh" };
+		if (/claude.*(?:4[.-][6-9]|5(?:[.-]|$))/.test(l))
+			return { minimal: null, xhigh: "xhigh" };
 		return { minimal: null };
 	}
 
@@ -563,6 +576,9 @@ function fallbackModels(): CLIProxyListModel[] {
 		{ id: "claude-sonnet-4-5", owned_by: "anthropic" },
 		{ id: "gemini-2.5-pro", owned_by: "google" },
 		{ id: "gemini-2.5-flash", owned_by: "google" },
+		{ id: "gpt-5.6-sol", owned_by: "openai" },
+		{ id: "gpt-5.6-terra", owned_by: "openai" },
+		{ id: "gpt-5.6-luna", owned_by: "openai" },
 		{ id: "gpt-5-codex", owned_by: "openai" },
 		{ id: "gpt-4o", owned_by: "openai" },
 		{ id: "gpt-4o-mini", owned_by: "openai" },
