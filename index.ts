@@ -87,9 +87,7 @@ const FAMILIES: Record<Family, FamilySpec> = {
 // CLIProxyAPIPlus ignores it when its `api-keys:` list is empty.
 const PLACEHOLDER_KEY = "no-key";
 
-// Snapshot of the last-known raw model list; used by /cliproxy-models and
-// /cliproxy-status for a nice grouped view.
-let lastFetched: CLIProxyListModel[] = [];
+// Count of the last-known raw model list; used for startup status messages.
 let lastCount = 0;
 
 // ---------------------------------------------------------------------------
@@ -529,6 +527,22 @@ function inferThinkingLevelMap(
 	}
 
 	if (family === "openai") {
+		// GPT-5.6 reasoning tiers differ by variant. Luna ends at max, while
+		// Terra and Sol also support ultra. Current pi releases expose through
+		// max; retaining the ultra mapping makes it available once pi supports it.
+		if (/gpt-5\.6.*luna/.test(l)) {
+			return { off: null, minimal: null, xhigh: "xhigh", max: "max" };
+		}
+		if (/gpt-5\.6.*(?:terra|sol)/.test(l)) {
+			return {
+				off: null,
+				minimal: null,
+				xhigh: "xhigh",
+				max: "max",
+				ultra: "ultra",
+			};
+		}
+
 		// CLIProxy only accepts low/medium/high/xhigh, so hide pi's minimal level.
 		// o-series and GPT-5 (up to 5.3) + Codex: thinking can't be turned off.
 		if (/\bo[1-4]\b/.test(l) || /gpt-5[.-][0-3]/.test(l) || l.includes("codex"))
@@ -673,7 +687,6 @@ function registerCommands(pi: ExtensionAPI, cfg: Config) {
 		handler: async (_args, ctx) => {
 			try {
 				const models = await fetchModels(cfg);
-				lastFetched = models;
 				lastCount = models.length;
 				const auth = cfg.apiKey ? "with API key" : "no API key";
 				notify(
@@ -698,7 +711,6 @@ function registerCommands(pi: ExtensionAPI, cfg: Config) {
 		handler: async (_args, ctx) => {
 			try {
 				const models = await fetchModels(cfg);
-				lastFetched = models;
 				lastCount = models.length;
 				const grouped = groupByOwner(models);
 				const lines = Object.entries(grouped)
@@ -729,7 +741,6 @@ function registerCommands(pi: ExtensionAPI, cfg: Config) {
 		handler: async (_args, ctx) => {
 			try {
 				const models = await fetchModels(cfg);
-				lastFetched = models;
 				lastCount = models.length;
 				const total = registerFamilies(pi, cfg, models);
 				notify(
@@ -768,7 +779,6 @@ export default async function (pi: ExtensionAPI): Promise<void> {
 		models = fallbackModels();
 	}
 
-	lastFetched = models;
 	lastCount = models.length;
 
 	registerFamilies(pi, cfg, models);
