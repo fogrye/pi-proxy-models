@@ -264,6 +264,10 @@ function inferLimits(id: string): { contextWindow: number; maxTokens: number } {
 		return { contextWindow: 1_048_576, maxTokens: 8_192 };
 
 	// OpenAI — GPT-5 family
+	// Sol, Terra, and Luna are exposed through Codex, so they must not inherit
+	// the 1.05M context window available to the plain/API GPT-5.6 model.
+	if (/gpt-5\.6-(?:sol|terra|luna)(?:$|[-.:])/.test(l))
+		return { contextWindow: 272_000, maxTokens: 128_000 };
 	if (/gpt-5\.6/.test(l))
 		return { contextWindow: 1_050_000, maxTokens: 128_000 };
 	// gpt-5.5 is genuinely a 272k-context model on the Codex backend (not 1M).
