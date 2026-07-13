@@ -359,13 +359,13 @@ function inferCost(id: string): {
 
 	// ── OpenAI GPT-5 family ────────────────────────────────────────────
 	if (/gpt-5\.6.*sol/.test(l))
-		return { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 0 };
+		return { input: 5, output: 30, cacheRead: 0.5, cacheWrite: 6.25 };
 	if (/gpt-5\.6.*terra/.test(l))
-		return { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0 };
+		return { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 3.125 };
 	if (/gpt-5\.6.*luna/.test(l))
-		return { input: 1, output: 6, cacheRead: 0.1, cacheWrite: 0 };
+		return { input: 1, output: 6, cacheRead: 0.1, cacheWrite: 1.25 };
 	if (/gpt-5\.6/.test(l))
-		return { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 0 };
+		return { input: 2.5, output: 15, cacheRead: 0.25, cacheWrite: 3.125 };
 	if (/gpt-5\.5-pro/.test(l))
 		return { input: 30, output: 180, cacheRead: 0, cacheWrite: 0 };
 	if (/gpt-5\.5/.test(l))
